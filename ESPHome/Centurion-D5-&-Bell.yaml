@@ -17,9 +17,6 @@ esphome:
     board_build.f_cpu: 80000000L #Reduce power draw of ESP32
   comment: ${comment}
 #  name_add_mac_suffix: true
-  project:
-    name: ${project_name}
-    version: ${project_version}
 
 esp32:
   board: esp32dev
