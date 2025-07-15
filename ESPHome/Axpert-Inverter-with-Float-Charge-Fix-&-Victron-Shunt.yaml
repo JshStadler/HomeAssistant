@@ -1,0 +1,1136 @@
+substitutions:
+  name: inverter
+  smartshunt: victron
+  inverter: axpert
+
+  tx_pin_victron: GPIO25 # Not connected! The communication is read-only
+  rx_pin_victron: GPIO26 # Connect this this GPIO and GND to the VE.direct port
+  rx_buffer_size_victron: '256'
+  baud_rate_victron: '19200'
+  battery_ah_capacity: '200.00'
+
+  tx_pin_inverter: GPIO17
+  rx_pin_inverter: GPIO16
+  baud_rate_inverter: '2400'
+
+  template_update: 2s
+  text_update: 5s
+  
+esphome:
+  name: ${name}
+  friendly_name: Inverter & Shunt
+  comment: Axpert 24V Inverter with Bulk Charge Fix and Victron SmartShunt
+  #  name_add_mac_suffix: true      
+
+esp32:
+  board: esp32doit-devkit-v1
+  framework:
+    type: esp-idf
+    
+external_components:
+  - source: github://syssi/esphome-pipsolar@pip8048
+    refresh: 0s  
+  - source: github://KinDR007/VictronMPPT-ESPHOME@main
+    refresh: 0s
+    
+# Enable logging
+logger:
+#    baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  power_save_mode: none
+#  Optional manual IP
+  manual_ip:
+    static_ip: 10.0.0.31
+    gateway: 10.0.0.254
+    subnet: 255.255.255.0
+    dns1: 10.0.0.254
+
+ #    reboot_timeout: 1h
+
+  ap:
+    ssid: "Inverter Fallback Hotspot"
+    password: !secret ap_password
+  
+# captive_portal:
+
+# web_server:
+#   port: 80
+#   auth:
+#     username: !secret web_server_username
+#     password: !secret web_server_password
+
+# globals:
+  
+  # - id: ${name}_${inverter}_PV_power_total_yesterday_global
+  #   type: float
+  #   restore_value: yes
+    
+  # - id: ${name}_${inverter}_ac_output_active_power_yesterday_global
+  #   type: float
+  #   restore_value: yes
+
+  # - id: ${name}_${inverter}_battery_charging_power_yesterday_global
+  #   type: float
+  #   restore_value: yes
+ 
+  # # - id: ${name}_${inverter}_battery_discharging_power_yesterday_global
+  # #   type: float
+  # #   restore_value: yes
+    
+  # - id: ${name}_${smartshunt}_battery_charging_power_yesterday_global
+  #   type: float
+  #   restore_value: yes
+    
+  # - id: ${name}_${smartshunt}_battery_discharging_power_yesterday_global
+  #   type: float
+  #   restore_value: yes
+
+time:
+  platform: sntp
+  id: my_time
+  timezone: "Africa/Johannesburg"
+  
+  # on_time:
+  #   - seconds: 59
+  #     minutes: 59
+  #     hours: 23
+  #     then:  
+
+  #       # - globals.set:
+  #       #         id: ${name}_${inverter}_PV_power_total_yesterday_global
+  #       #         value: !lambda return ( id(${name}_${inverter}_PV_power_total_yesterday_global) =  float( id(${name}_${inverter}_PV1_power_total_today).state) );                    
+  
+  #       - globals.set:
+  #               id: ${name}_${inverter}_ac_output_active_power_yesterday_global
+  #               value: !lambda return ( id(${name}_${inverter}_ac_output_active_power_yesterday_global) =  float( id(${name}_${inverter}_ac_output_active_power_total_today).state) );
+
+  #       - globals.set:
+  #               id: ${name}_${inverter}_battery_charging_power_yesterday_global
+  #               value: !lambda return ( id(${name}_${inverter}_battery_charging_power_yesterday_global) =  float( id(${name}_${inverter}_battery_charging_power_total_today).state) ); 
+                
+  #       - globals.set:
+  #               id: ${name}_${inverter}_battery_discharging_power_yesterday_global
+  #               value: !lambda return ( id(${name}_${inverter}_battery_discharging_power_yesterday_global) =  float( id(${name}_${inverter}_battery_discharging_power_total_today).state) ); 
+
+  #       - globals.set:
+  #               id: ${name}_${smartshunt}_battery_charging_power_yesterday_global
+  #               value: !lambda return ( id(${name}_${smartshunt}_battery_charging_power_yesterday_global) =  float( id(${name}_${smartshunt}_battery_charging_power_total_today).state) ); 
+                
+  #       - globals.set:
+  #               id: ${name}_${smartshunt}_battery_discharging_power_yesterday_global
+  #               value: !lambda return ( id(${name}_${smartshunt}_battery_discharging_power_yesterday_global) =  float( id(${name}_${smartshunt}_battery_discharging_power_total_today).state) ); 
+                
+                ####################### UART #######################
+
+uart: 
+
+ ######### UART for the Victron SmartShunt ###### 
+  - id: uart_0
+    tx_pin: ${tx_pin_victron}
+    rx_pin: ${rx_pin_victron}
+    baud_rate: ${baud_rate_victron}
+    rx_buffer_size: ${rx_buffer_size_victron}
+
+ ######### UART for PIPsolar RS232 ######
+  - id: uart_1
+    tx_pin: ${tx_pin_inverter}   
+    rx_pin: ${rx_pin_inverter}
+    baud_rate: ${baud_rate_inverter}
+
+######################### DEVICES UART/MODBUS based ################### 
+
+victron:
+  - id: victron0
+    uart_id: uart_0
+
+pipsolar:
+  - uart_id: uart_1
+    id: pip8048 
+    #update_interval: 5s
+
+    
+output:
+  - platform: pipsolar
+    pipsolar_id: pip8048 
+    battery_bulk_voltage:
+      id: ${name}_${inverter}_battery_bulk_voltage_set
+      possible_values: [25.0,25.1,25.2,25.3,25.4,25.5,25.6,25.7,25.8,25.9,26.0,26.1,26.2,26.3,26.4,26.5,26.6,26.7,26.8,26.9,27.0,27.1,27.2,27.3,27.4,27.5,27.6,27.7,27.8,27.9,28.0,28.1,28.2,28.3,28.4,28.5,28.6,28.7,28.8,28.9,29.0,29.1,29.2,29.3,29.4,29.5,29.6,29.7,29.8,29.9,30.0,30.1,30.2,30.3,30.4,30.5,30.6,30.7,30.8,30.9,31.0]
+  
+  - platform: pipsolar
+    pipsolar_id: pip8048 
+    battery_float_voltage:
+      id: ${name}_${inverter}_battery_float_voltage_set
+      possible_values: [25.0,25.1,25.2,25.3,25.4,25.5,25.6,25.7,25.8,25.9,26.0,26.1,26.2,26.3,26.4,26.5,26.6,26.7,26.8,26.9,27.0,27.1,27.2,27.3,27.4,27.5,27.6,27.7,27.8,27.9,28.0,28.1,28.2,28.3,28.4,28.5,28.6,28.7,28.8,28.9,29.0,29.1,29.2,29.3,29.4,29.5,29.6,29.7,29.8,29.9,30.0,30.1,30.2,30.3,30.4,30.5,30.6,30.7,30.8,30.9,31.0]
+  
+  # - platform: pipsolar
+  #   pipsolar_id: pip8048 
+  #   current_max_charging_current:
+  #     id: ${name}_${inverter}_current_max_charging_current_set
+  #     possible_values: [10,20,30,40,50,60,70,80]
+
+  # - platform: pipsolar
+  #   pipsolar_id: pip8048 
+  #   current_max_ac_charging_current:
+  #     id: ${name}_${inverter}_current_max_ac_charging_current_set
+  #     possible_values: [2,10,20,30,40,50,60,70,80]    
+      
+  - platform: pipsolar
+    pipsolar_id: pip8048 
+    battery_under_voltage:
+      id: ${name}_${inverter}_battery_under_voltage_set
+      possible_values: [21.0, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8, 21.9, 22.0, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 23.0, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 24.0]
+  
+  # - platform: pipsolar
+  #   pipsolar_id: pip8048 
+  #   battery_recharge_voltage:
+  #     id: ${name}_${inverter}_battery_recharge_voltage_set
+  #     possible_values: [44.0,45.0,46.0,47.0,48.0,49.0,49.0,50.0,51.0]
+
+  # - platform: gpio
+  #   pin: GPIO2
+  #   id: float_bulk_mode_status_led
+
+number:
+
+  ######## Thresholds Axpert ########
+
+  - platform: template
+    name: Bulk charge voltage
+    id: ${name}_${inverter}_battery_bulk_voltage_number
+    optimistic: true
+    unit_of_measurement: 'V'
+    icon: mdi:sine-wave
+    min_value: 27.0
+    max_value: 29.0
+    step:  0.1
+    initial_value: 28.2
+    restore_value: true
+    mode: 'slider'
+    on_value:
+      then:
+        - output.pipsolar.set_level:
+            id: ${name}_${inverter}_battery_bulk_voltage_set
+            value: !lambda return (float(id(${name}_${inverter}_battery_bulk_voltage_number).state));
+
+  - platform: template
+    name: Float charge voltage
+    id: ${name}_${inverter}_battery_float_voltage_number
+    optimistic: true
+    unit_of_measurement: 'V'
+    icon: mdi:sine-wave
+    min_value: 26.5
+    max_value: 28.2
+    step:  0.1
+    initial_value: 26.8
+    restore_value: true
+    mode: 'slider'
+    on_value:
+      then:
+        - output.pipsolar.set_level:
+            id: ${name}_${inverter}_battery_float_voltage_set
+            value: !lambda return (float(id(${name}_${inverter}_battery_float_voltage_number).state));                  
+            
+  - platform: template
+    name: Cutoff voltage
+    id: ${name}_${inverter}_battery_under_voltage_number
+    optimistic: true
+    unit_of_measurement: 'V'
+    icon: mdi:sine-wave
+    min_value: 21.0
+    max_value: 24.0
+    step:  0.1
+    initial_value: 24.0
+    restore_value: true
+    mode: 'slider'
+    on_value:
+      then:
+        - output.pipsolar.set_level:
+            id: ${name}_${inverter}_battery_under_voltage_set
+            value: !lambda return (id(${name}_${inverter}_battery_under_voltage_number).state);
+
+ #  - platform: template
+ #    name: ${name}_${inverter}_battery_recharge_voltage_number
+ #    id: ${name}_${inverter}_battery_recharge_voltage_number
+ #    optimistic: true
+ #    unit_of_measurement: 'V'
+ #    icon: mdi:sine-wave
+ #    min_value: 44.0
+ #    max_value: 51.0
+ #    step:  1.0
+ #    initial_value: 48.0
+ #    restore_value: true
+ #    mode: 'slider'
+ #    on_value:
+ #      then:
+ #        - output.pipsolar.set_level:
+ #            id: ${name}_${inverter}_battery_recharge_voltage_set
+ #            value: !lambda return (id(${name}_${inverter}_battery_recharge_voltage_number).state);              
+ 
+    ######### Charging Fix - Bulk Charging Parameters ########
+
+  - platform: template
+    name: Set float stage voltage
+    id: ${name}_${inverter}_set_float_stage_voltage
+    optimistic: true
+    unit_of_measurement: 'V'
+    icon: mdi:power-plug-battery-outline
+    min_value: 26.5
+    max_value: 27.5
+    step: 0.1
+    initial_value: 26.9
+    restore_value: true
+    mode: 'slider' 
+
+  - platform: template
+    name: Switch to bulk current
+    id: ${name}_${inverter}_switch_to_bulk_charge_current
+    optimistic: true
+    unit_of_measurement: 'A'
+    icon: mdi:power-plug-battery-outline
+    min_value: 1
+    max_value: 10
+    step: 1
+    initial_value: 3
+    restore_value: true
+    mode: 'slider' 
+
+  - platform: template
+    name: Switch to float current
+    id: ${name}_${inverter}_switch_to_float_charge_current
+    optimistic: true
+    unit_of_measurement: 'A'
+    icon: mdi:power-plug-battery-outline
+    min_value: 1
+    max_value: 10
+    step: 1
+    initial_value: 4
+    restore_value: true
+    mode: 'slider' 
+
+switch:
+
+  - platform: restart
+    name: "ESP Restart"
+      
+sensor:   
+  
+  - platform: uptime
+    name: Uptime
+    id: uptime_sec
+    device_class: "duration"
+    state_class: "TOTAL_INCREASING"
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  - platform: wifi_signal 
+    name: RSSI
+    id: wifi_signal_db
+    update_interval: 60s
+    device_class: "signal_strength"
+    state_class: "measurement"
+    entity_category: "diagnostic"
+    
+  - platform: pipsolar
+    pipsolar_id: pip8048
+    # grid_rating_voltage:
+    #   id: ${name}_${inverter}_grid_rating_voltage
+    #   name: ${name}_${inverter}_grid_rating_voltage
+    # grid_rating_current:
+      # id: ${name}_${inverter}_grid_rating_current
+      # name: ${name}_${inverter}_grid_rating_current
+    # ac_output_rating_voltage:
+      # id: ${name}_${inverter}_ac_output_rating_voltage
+      # name: ${name}_${inverter}_ac_output_rating_voltage
+    # ac_output_rating_frequency:
+      # id: ${name}_${inverter}_ac_output_rating_frequency
+      # name: ${name}_${inverter}_ac_output_rating_frequency
+    # ac_output_rating_current:
+      # id: ${name}_${inverter}_ac_output_rating_current
+      # name: ${name}_${inverter}_ac_output_rating_current  
+    # ac_output_rating_apparent_power:
+      # id: ${name}_${inverter}_ac_output_rating_apparent_power
+      # name: ${name}_${inverter}_ac_output_rating_apparent_power
+    # ac_output_rating_active_power:
+      # id: ${name}_${inverter}_ac_output_rating_active_power
+      # name: ${name}_${inverter}_ac_output_rating_active_power
+    # battery_rating_voltage:
+    #   id: ${name}_${inverter}_battery_rating_voltage
+    #   name: "Inverter rated battery voltage"
+    # battery_recharge_voltage:
+    #   id: ${name}_${inverter}_battery_recharge_voltage
+    #   name: "Recharge voltage"
+    battery_under_voltage:
+      id: ${name}_${inverter}_battery_under_voltage
+      name: "Battery cutoff voltage"
+    battery_bulk_voltage:
+      id: ${name}_${inverter}_battery_bulk_voltage
+      name: "Bulk charge voltage"
+    battery_float_voltage:
+      id: ${name}_${inverter}_battery_float_voltage
+      name: "Float charge voltage"
+      # on_value:
+      #   then:
+      #   - if:
+      #       condition:
+      #         lambda: return (float(id(${name}_${inverter}_battery_float_voltage_number).state)) != (float(id(${name}_${inverter}_battery_float_voltage).state));
+      #       then:
+      #         - number.set:
+      #             id: ${name}_${inverter}_battery_float_voltage_number
+      #             value: !lambda return (float(id(${name}_${inverter}_battery_float_voltage).state));
+    # battery_type:
+      # id: ${name}_${inverter}_battery_type
+      #name: ${name}_${inverter}_battery_type
+    # battery_redischarge_voltage:
+    #   id: ${name}_${inverter}_battery_redischarge_voltage
+    #   name: "Redischarge voltage"
+    # current_max_ac_charging_current:
+    #   id: ${name}_${inverter}_current_max_ac_charging_current
+    #   name: "Inverter max AC charging current"
+    # current_max_charging_current:
+    #   id: ${name}_${inverter}_current_max_charging_current
+    #   name: "Max charging current"
+    # output_source_priority:
+      # id: ${name}_${inverter}_output_source_priority
+      # name: "Output source priority"
+    # output_mode:
+    #   id: ${name}_${inverter}_output_mode
+    #   name: "Inverter output_mode"
+    output_load_percent:
+      id: ${name}_${inverter}_output_load_percent
+      name: "Output load"
+      accuracy_decimals: 0
+    # charger_source_priority:
+      # id: ${name}_${inverter}_charger_source_priority
+      # name: "Charger source priority"
+    grid_voltage:
+      id: ${name}_${inverter}_grid_voltage
+      name: "Grid voltage"
+      device_class: "voltage"
+      state_class: "measurement"
+    # grid_frequency:
+      # id: ${name}_${inverter}_grid_frequency
+      # name: ${name}_${inverter}_grid_frequency  
+    ac_output_voltage:
+      id: ${name}_${inverter}_ac_output_voltage
+      name: "AC output voltage"
+      device_class: "voltage"
+      state_class: "measurement"
+    # ac_output_frequency:
+      # id: ${name}_${inverter}_ac_output_frequency
+      # name: ${name}_${inverter}_ac_output_frequency
+    ac_output_apparent_power:
+      id: ${name}_${inverter}_ac_output_apparent_power
+      name: "AC output VA"
+      accuracy_decimals: 0
+    ac_output_active_power:
+      id: ${name}_${inverter}_ac_output_active_power
+      name: "AC output power"
+      accuracy_decimals: 0
+      device_class: "power"
+      state_class: "measurement"
+    # bus_voltage:
+    #   id: ${name}_${inverter}_bus_voltage
+    #   name: "Inverter bus voltage"
+    battery_voltage:
+      id: ${name}_${inverter}_battery_voltage
+      name: "Inverter battery voltage"   
+      device_class: "voltage"
+      state_class: "measurement"   
+    battery_charging_current:
+      id: ${name}_${inverter}_battery_charging_current
+      name: "Battery charge current"
+      device_class: "current"
+      state_class: "measurement"
+      accuracy_decimals: 0
+      on_value_range:
+        - below: !lambda return (id(${name}_${inverter}_switch_to_float_charge_current).state); 
+          then:
+          - if: 
+              condition: 
+                lambda: return ((float(id(${name}_${inverter}_set_float_stage_voltage).state)) != (float(id(${name}_${inverter}_battery_float_voltage).state)));
+              then:
+                - output.pipsolar.set_level:
+                    id: ${name}_${inverter}_battery_float_voltage_set
+                    value: !lambda return (float(id(${name}_${inverter}_set_float_stage_voltage).state));
+        - above: !lambda return (id(${name}_${inverter}_switch_to_bulk_charge_current).state);
+          then:
+          - if: 
+              condition: 
+                lambda: return (float(id(${name}_${inverter}_battery_bulk_voltage).state)) != (float(id(${name}_${inverter}_battery_float_voltage).state));
+              then:
+                - output.pipsolar.set_level:
+                    id: ${name}_${inverter}_battery_float_voltage_set
+                    value: !lambda return (float(id(${name}_${inverter}_battery_bulk_voltage).state)); 
+    # # battery_capacity_percent:
+    #   # id: ${name}_${inverter}_battery_capacity_percent
+    #   # name: "Inverter battery capacity percent"
+    # battery_voltage_scc:
+    #   id: ${name}_${inverter}_battery_voltage_scc
+    #   name: "Inverter battery voltage scc"
+    battery_discharge_current:
+      id: ${name}_${inverter}_battery_discharge_current
+      name: "Battery discharge current"
+      device_class: "current"
+      state_class: "measurement"
+      accuracy_decimals: 0
+    # battery_voltage_offset_for_fans_on:
+      # id: ${name}_${inverter}_battery_voltage_offset_for_fans_on
+      # name: "Inverter battery voltage offset for fans on"
+    inverter_heat_sink_temperature:
+      id: ${name}_${inverter}_inverter_heat_sink_temperature
+      name: "Inverter temperature"
+      device_class: "temperature"
+      state_class: "measurement"
+      accuracy_decimals: 0
+#    add_sbu_priority_version:
+#      id: ${name}_${inverter}_add_sbu_priority_version
+#      name: ${name}_${inverter}_add_sbu_priority_version
+#    eeprom_version:
+#      id: ${name}_${inverter}_eeprom_version
+#      name: ${name}_${inverter}_eeprom_version
+#    scc_firmware_version:
+#      id: ${name}_${inverter}_scc_firmware_version
+#      name: ${name}_${inverter}_scc_firmware_version
+    # pv1_input_current:
+    #   id: ${name}_${inverter}_pv1_input_current
+    #   name: "PV input current"  
+    # pv1_input_voltage:
+    #   id: ${name}_${inverter}_pv1_input_voltage
+    #   name: "PV input voltage"
+    # pv1_charging_power:
+    #   id: ${name}_${inverter}_pv1_charging_power
+    #   name: "PV charging power"
+    # pv2_input_current:
+      # id: ${name}_${inverter}_pv2_input_current
+      # name: ${name}_${inverter}_pv2_input_current  
+    # pv2_input_voltage:
+      # id: ${name}_${inverter}_pv2_input_voltage
+      # name: ${name}_${inverter}_pv2_input_voltage  
+    # pv2_charging_power:
+      # id: ${name}_${inverter}_pv2_charging_power
+      # name: ${name}_${inverter}_pv2_charging_power
+
+      
+  # - platform: total_daily_energy
+    # name: PV power total today
+    # power_id: ${name}_${inverter}_pv1_charging_power 
+    # unit_of_measurement: "kWh"
+    # accuracy_decimals: 2
+    # id: ${name}_${inverter}_PV1_power_total_today
+    # method: trapezoid
+    # filters:
+    #    # Multiplication factor from W to kW is 0.001
+    #    - multiply: 0.001
+    # icon: mdi:counter
+    
+  # - platform: total_daily_energy
+    # name: ${name}_${inverter}_PV2_power_total_today
+    # power_id: ${name}_${inverter}_pv2_charging_power 
+    # unit_of_measurement: "kWh"
+    # accuracy_decimals: 2
+    # id: ${name}_${inverter}_PV2_power_total_today
+    # method: trapezoid
+    # filters:
+       # Multiplication factor from W to kW is 0.001
+    #    - multiply: 0.001
+    # icon: mdi:counter  
+      
+  # - platform: template
+  #   name: PV power total
+  #   id: ${name}_${inverter}_PV_power_total
+  #   unit_of_measurement: "W"
+  #   accuracy_decimals: 1
+  #   update_interval: ${template_update}
+  #   icon: mdi:power  
+  #   lambda: return ( (id(${name}_${inverter}_pv1_charging_power).state)); + (id(${name}_${inverter}_pv2_charging_power).state) );     
+    
+  # - platform: total_daily_energy
+  #   name: PV power total today
+  #   power_id: ${name}_${inverter}_PV_power_total 
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 2
+  #   id: ${name}_${inverter}_PV_power_total_today
+  #   method: trapezoid
+  #   filters:
+  #      # Multiplication factor from W to kW is 0.001
+  #      - multiply: 0.001
+  #   icon: mdi:counter
+    
+  # - platform: template
+  #   name: PV power total yesterday
+  #   id: template_${name}_${inverter}_PV_power_total_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 2
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${inverter}_PV_power_total_yesterday).state = id(${name}_${inverter}_PV_power_total_yesterday_global) );
+
+  - platform: total_daily_energy
+    name: AC output power today
+    power_id: ${name}_${inverter}_ac_output_active_power 
+    unit_of_measurement: "kWh"
+    device_class: "energy"
+    accuracy_decimals: 2
+    id: ${name}_${inverter}_ac_output_active_power_total_today
+    method: trapezoid
+    filters:
+       # Multiplication factor from W to kW is 0.001
+       - multiply: 0.001
+    icon: mdi:counter
+    
+  # - platform: template
+  #   name: AC output power yesterday
+  #   id: template_${name}_${inverter}_ac_output_active_power_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 3
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${inverter}_ac_output_active_power_yesterday).state = id(${name}_${inverter}_ac_output_active_power_yesterday_global) );
+    
+  - platform: template
+    name: Battery charge power
+    id: ${name}_${inverter}_battery_charging_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 1
+    update_interval: ${template_update}
+    icon: mdi:power  
+    device_class: "power"
+    state_class: "measurement"
+    lambda: return ( (id(${name}_${inverter}_battery_voltage).state) * (id(${name}_${inverter}_battery_charging_current).state) );   
+
+  - platform: total_daily_energy
+    name: Battery charged power today
+    power_id: ${name}_${inverter}_battery_charging_power 
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: "energy"
+    id: ${name}_${inverter}_battery_charging_power_total_today
+    method: trapezoid
+    filters:
+       # Multiplication factor from W to kW is 0.001
+       - multiply: 0.001
+    icon: mdi:counter
+    
+  # - platform: template
+  #   name: Battery charged power yesterday
+  #   id: template_${name}_${inverter}_battery_charging_power_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 3
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${inverter}_battery_charging_power_yesterday).state = id(${name}_${inverter}_battery_charging_power_yesterday_global) );    
+       
+  - platform: template
+    name: Battery discharge power
+    id: ${name}_${inverter}_battery_discharging_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 1
+    update_interval: ${template_update}
+    icon: mdi:power  
+    device_class: "power"
+    state_class: "measurement"
+    lambda: return ( (id(${name}_${inverter}_battery_voltage).state) * (id(${name}_${inverter}_battery_discharge_current).state) );       
+
+  - platform: total_daily_energy
+    name: Battery discharged power today
+    power_id: ${name}_${inverter}_battery_discharging_power 
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: "energy"
+    id: ${name}_${inverter}_battery_discharging_power_total_today
+    method: trapezoid
+    filters:
+       # Multiplication factor from W to kW is 0.001
+       - multiply: 0.001
+    icon: mdi:counter
+    
+  # - platform: template
+  #   name: Battery discharged power yesterday
+  #   id: template_${name}_${inverter}_battery_discharging_power_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 3
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${inverter}_battery_discharging_power_yesterday).state = id(${name}_${inverter}_battery_discharging_power_yesterday_global) );        
+   
+  ############# Victron SmartShunt ##################  
+       
+  - platform: victron
+    victron_id: victron0
+    battery_voltage:
+      id: "${name}_${smartshunt}_battery_voltage"
+      name: "Battery voltage"
+      accuracy_decimals: 2
+      device_class: "voltage"
+      state_class: "measurement"
+      filters:
+      - quantile:
+          window_size: 7
+          send_every: 4
+          send_first_at: 3
+          quantile: .3
+       #      on_value:
+ #       - if:  ##### si tension batterie < seuil bas    ######
+ #          condition:
+ #            and:
+ #              - switch.is_on: ${name}_ats_automatic_control
+ #              - lambda: |-
+ #                 return ( ( float(id(${name}_${smartshunt}_total_voltage).state) < float(id(${name}_${ats}_tension_bascule_solar_to_grid_number).state) )     );            
+ #          then:
+ #            - script.execute: script_from_solar_to_grid
+ 
+ #       - if:  ##### si tension batterie > seuil haut    ######
+ #          condition:
+ #            and: 
+ #              - switch.is_on: ${name}_ats_automatic_control
+ #              - lambda: |-
+ #                  return ( ( float(id(${name}_${smartshunt}_total_voltage).state) > float(id(${name}_${ats}_tension_bascule_solar_to_grid_number).state) )     );            
+ #          then:
+ #            - script.execute: script_from_grid_to_solar
+    midpoint_deviation_of_the_battery_bank:
+      id: "${name}_${smartshunt}_midpoint_deviation_of_the_battery_bank"
+      name: "Battery midpoint voltage deviation"
+      accuracy_decimals: 2
+    battery_current:
+      id: "${name}_${smartshunt}_battery_current"
+      name: "Battery current"
+      accuracy_decimals: 2
+      device_class: "current"
+      state_class: "measurement"
+    instantaneous_power:
+      id: "${name}_${smartshunt}_instantaneous_power"
+      name: "Battery instantaneous power"
+      device_class: "power"
+      state_class: "measurement"
+      filters:
+        - clamp:
+            min_value: -5500
+            max_value: 5500
+    consumed_amp_hours:
+      id: "${name}_${smartshunt}_consumed_amp_hours"
+      name: "Consumed Ah"
+      accuracy_decimals: 2
+    state_of_charge:
+      id: "${name}_${smartshunt}_state_of_charge"
+      name: "State of Charge"
+      device_class: battery
+      state_class: measurement
+      accuracy_decimals: 1
+      filters:
+      - quantile:
+          window_size: 7
+          send_every: 4
+          send_first_at: 3
+          quantile: .3
+    time_to_go:
+      id: "${name}_${smartshunt}_time_to_go"
+      name: "Time to go"
+    # depth_of_the_deepest_discharge:
+    #   id: "${name}_${smartshunt}_depth_of_the_deepest_discharge"
+    #   name: "Depth of the deepest discharge (Shunt)"
+    # depth_of_the_last_discharge:
+    #   id: "${name}_${smartshunt}_depth_of_the_last_discharge"
+    #   name: "Depth of the last discharge (Shunt)"
+    # depth_of_the_average_discharge:
+    #   id: "${name}_${smartshunt}_depth_of_the_average_discharge"
+    #   name: "Depth of the average discharge (Shunt)"
+    # number_of_charge_cycles:
+    #   id: "${name}_${smartshunt}_number_of_charge_cycles"
+    #   name: "Number of charge cycles (Shunt)"
+    # number_of_charge_cycles:
+    #   id: "${name}_${smartshunt}_number_of_charge_cycles"
+    #   name: "Number of charge cycles (Shunt)"
+    #   state_class: "TOTAL_INCREASING"
+    #   filters:
+    #     - filter_out: nan  # Ignore invalid readings
+    #     - range:
+    #         below: 0
+    #         action: discard  # Discards all negative values
+    #     - delta: 5  # Only allow changes smaller than 5
+    # number_of_full_discharges:
+    #   id: "${name}_${smartshunt}_number_of_full_discharges"
+    #   name: "Number of full discharges (Shunt)"
+    # cumulative_amp_hours_drawn:
+    #   id: "${name}_${smartshunt}_cumulative_amp_hours_drawn"
+    #   name: "Cumulative amp hours drawn (Shunt)"
+    # min_battery_voltage:
+      # id: "${name}_${smartshunt}_min_battery_voltage"
+      # name: "Min battery voltage (Shunt)"
+    # max_battery_voltage:
+      # id: "${name}_${smartshunt}_max_battery_voltage"
+      # name: "Max battery voltage (Shunt)"
+    # last_full_charge:
+    #   id: "${name}_${smartshunt}_last_full_charge"
+    #   name: "Last full charge (Shunt)"
+    # amount_of_discharged_energy:
+    #   id: "${name}_${smartshunt}_amount_of_discharged_energy"
+    #   name: "Amount of discharged energy (Shunt)"
+    # amount_of_charged_energy:
+    #   id: "${name}_${smartshunt}_amount_of_charged_energy"
+    #   name: "Amount of charged energy (Shunt)"
+
+  - platform: template
+    name: ${name}_${smartshunt}_battery_charging_power
+    id: ${name}_${smartshunt}_battery_charging_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 1
+    update_interval: ${template_update}
+    icon: mdi:power  
+    device_class: "power"
+    state_class: "measurement"
+    lambda: |-
+      if (float(id(${name}_${smartshunt}_battery_current).state)> 0){
+        return ( (id(${name}_${smartshunt}_battery_voltage).state) * (id(${name}_${smartshunt}_battery_current).state) );   
+      }
+      else {
+        return 0.0;
+      }
+  - platform: total_daily_energy
+    name: ${name}_${smartshunt}_battery_charging_power_total_today
+    power_id: ${name}_${smartshunt}_battery_charging_power 
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: "energy"
+    id: ${name}_${smartshunt}_battery_charging_power_total_today
+    method: trapezoid
+    filters:
+       # Multiplication factor from W to kW is 0.001
+       - multiply: 0.001
+    icon: mdi:counter
+    
+  # - platform: template
+  #   name: ${name}_${smartshunt}_battery_charging_power_yesterday
+  #   id: template_${name}_${smartshunt}_battery_charging_power_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 3
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${smartshunt}_battery_charging_power_yesterday).state = id(${name}_${smartshunt}_battery_charging_power_yesterday_global) );    
+
+  - platform: template
+    name: ${name}_${smartshunt}_battery_discharging_current
+    id: ${name}_${smartshunt}_battery_discharging_current
+    unit_of_measurement: "A"
+    accuracy_decimals: 1
+    update_interval: ${template_update}
+    icon: mdi:current-dc 
+    lambda: |-
+      if (float(id(${name}_${smartshunt}_battery_current).state)< 0){
+        return ( (id(${name}_${smartshunt}_battery_current).state) );   
+      }
+      else {
+        return 0.0;
+      }    
+    
+  - platform: template
+    name: ${name}_${smartshunt}_battery_discharging_power
+    id: ${name}_${smartshunt}_battery_discharging_power
+    unit_of_measurement: "W"
+    accuracy_decimals: 1
+    update_interval: ${template_update}
+    icon: mdi:power  
+    device_class: "power"
+    state_class: "measurement"
+    lambda: |-
+      if (float(id(${name}_${smartshunt}_battery_current).state) < 0){
+        return ( -(id(${name}_${smartshunt}_battery_voltage).state) * (id(${name}_${smartshunt}_battery_current).state) );   
+      }
+      else {
+        return 0.0;
+      }
+      
+  - platform: total_daily_energy
+    name: ${name}_${smartshunt}_battery_discharging_power_total_today
+    power_id: ${name}_${smartshunt}_battery_discharging_power 
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 2
+    device_class: "energy"
+    id: ${name}_${smartshunt}_battery_discharging_power_total_today
+    method: trapezoid
+    filters:
+       # Multiplication factor from W to kW is 0.001
+       - multiply: 0.001
+    icon: mdi:counter
+    
+  # - platform: template
+  #   name: ${name}_${smartshunt}_battery_discharging_power_yesterday
+  #   id: template_${name}_${smartshunt}_battery_discharging_power_yesterday
+  #   unit_of_measurement: "kWh"
+  #   accuracy_decimals: 3
+  #   icon: mdi:power
+  #   update_interval: ${template_update}
+  #   lambda: |-
+  #     return ( id(template_${name}_${smartshunt}_battery_discharging_power_yesterday).state = id(${name}_${smartshunt}_battery_discharging_power_yesterday_global) );
+
+  # - platform: template
+  #   name: ${name}_${smartshunt}_battery_capacity_remaining
+  #   id: ${name}_${smartshunt}_battery_capacity_remaining
+  #   unit_of_measurement: "Wh"
+  #   accuracy_decimals: 2
+  #   update_interval: ${template_update}
+  #   icon: mdi:power  
+  #   lambda: |-
+  #     if (float(id(${name}_${smartshunt}_battery_current).state) < 0){
+  #       return ( ${battery_ah_capacity} + (id(${name}_${smartshunt}_consumed_amp_hours).state) );   
+  #     }
+  #     else {
+  #       return { (id(${name}_${smartshunt}_battery_current).state) };
+  #     }
+
+  - platform: template
+    name: " SmartShunt charge "
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 2
+    lambda: |-
+          float i = ${battery_ah_capacity} + id(${name}_${smartshunt}_consumed_amp_hours).state;
+          float e = id(${name}_${smartshunt}_battery_voltage).state;
+          float w = 0.0;
+          if (i > 0) {
+            w =  i * e;
+          }
+          return {w};
+
+  - platform: template
+    name: " SmartShunt discharge "
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+    device_class: energy
+    accuracy_decimals: 2
+    lambda: |-
+          float i = id(${name}_${smartshunt}_consumed_amp_hours).state;
+          float e = id(${name}_${smartshunt}_battery_voltage).state;
+          float w = 0.0;
+          if (i < 0) {
+            w = i * e;
+          }
+          return {w * -1};
+
+binary_sensor:
+
+  - platform: template 
+    name: "Grid Power State"
+    icon: "mdi:power-plug"
+    lambda: |-
+      if (id(${name}_${inverter}_grid_voltage).state != 0) {
+        return true;
+      } else {
+        return false;
+      }
+
+  - platform: pipsolar
+    pipsolar_id: pip8048
+#     warning_battery_equalization:
+#       id: ${name}_${inverter}_warning_battery_equalization
+#       name: "Battery Equalization Status"
+#     # configuration_status:
+#       # name: "Inverter configuration status"
+# #    scc_firmware_version:
+# #      name: "${name} scc_firmware_version"
+#     # load_status:
+#       # name: "Inverter load status"
+#     # battery_voltage_to_steady_while_charging:
+#       # name: "pvbrain_axpert_battery_voltage_to_steady_while_charging"
+    charging_status:
+      name: "Inverter charging status"
+#     # scc_charging_status:
+#       # name: "Inverter SCC charging status"
+#     # ac_charging_status:
+#       # name: "Inverter AC charging status"
+#     # charging_to_floating_mode:
+#       # name: "pvbrain_axpert_charging_to_floating_mode"
+#     switch_on:
+#       name: "Inverter switch on"
+#       id: ${name}_${inverter}_switch_on    
+
+text_sensor:
+
+  - platform: template
+    name: "Current time"
+    lambda: |-
+      char str[17];
+      time_t currTime = id(my_time).now().timestamp;
+      strftime(str, sizeof(str), "%H:%M", localtime(&currTime));
+      return  { str };
+    update_interval: 60s
+
+  - platform: template
+    name: "ESP Uptime"
+    lambda: |-
+      int seconds = (id(uptime_sec).state);
+      int days = seconds / (24 * 3600);
+      seconds = seconds % (24 * 3600); 
+      int hours = seconds / 3600;
+      seconds = seconds % 3600;
+      int minutes = seconds /  60;
+      seconds = seconds % 60;
+      if ( days ) {
+        return { (std::to_string(days) +"d " + std::to_string(hours) +"h " + std::to_string(minutes) +"m").c_str() };
+      } else if ( hours ) {
+        return { (std::to_string(hours) +"h " + std::to_string(minutes) +"m").c_str() };
+      } else if ( minutes ) {
+        return { (std::to_string(minutes) +"m "+ std::to_string(seconds) +"s ").c_str() };
+      } else {
+        return { (std::to_string(seconds) +"s ").c_str() };
+      }
+    icon: mdi:clock-start
+    update_interval: 113s
+    
+  - platform: template
+    name: "Time to go (Segmented)"
+    id: "${name}_${smartshunt}_time_to_go_segmented"
+    lambda: |-
+      int minutes = (id(${name}_${smartshunt}_time_to_go).state);
+      int days = minutes / 1440;
+      minutes = minutes % 1440;
+      int hours = minutes / 60;
+      minutes = minutes % 60;
+      if ( days ) {
+        return { (std::to_string(days) +"d " + std::to_string(hours) +"h " + std::to_string(minutes) +"m").c_str() };
+      } else if ( hours ) {
+        return { (std::to_string(hours) +"h " + std::to_string(minutes) +"m").c_str() };
+      } else {
+        return { (std::to_string(minutes) +"m ").c_str() };
+      }
+    icon: mdi:clock-stop
+    update_interval: 15s
+
+  # - platform: template
+  #   name: ${name}_remaining_time
+  #   lambda: |-
+  #     if(id(${name}_${smartshunt}_battery_current).state<0) {
+  #       int seconds = int(id(${name}_${smartshunt}_battery_capacity_remaining).state*0.01*${battery_ah_capacity}/(-id(${name}_${smartshunt}_battery_current).state)*(3600));
+  #       int days = seconds / (24 * 3600);
+  #       seconds = seconds % (24 * 3600); 
+  #       int hours = seconds / 3600;
+  #       seconds = seconds % 3600;
+  #       int minutes = seconds /  60;
+  #       seconds = seconds % 60;
+  #       return { ("Discharging time to go: " + std::to_string(days) +"d " + std::to_string(hours) +"h " + std::to_string(minutes) +"m "+ std::to_string(seconds) +"s").c_str() };
+  #     }
+  #     else if(id(${name}_${smartshunt}_battery_current).state>0){
+  #       int seconds = int((1.0-float(id(${name}_${smartshunt}_battery_capacity_remaining).state)*0.01)*float(${battery_ah_capacity})/float(id(${name}_${smartshunt}_battery_current).state)*(3600));
+  #       int days = seconds / (24 * 3600);
+  #       seconds = seconds % (24 * 3600); 
+  #       int hours = seconds / 3600;
+  #       seconds = seconds % 3600;
+  #       int minutes = seconds /  60;
+  #       seconds = seconds % 60;
+  #       return { ("Charging time to go: " + std::to_string(days) +"d " + std::to_string(hours) +"h " + std::to_string(minutes) +"m "+ std::to_string(seconds) +"s").c_str() };
+  #     }
+  #     else{
+  #       return {""};
+  #     }
+  #   icon: mdi:clock-start
+  #   update_interval: ${text_update}  
+    
+
+select:
+  - platform: pipsolar
+    pipsolar_id: pip8048
+    output_source_priority:
+      id: ${name}_${inverter}_output_source_priority_select 
+      name: "Output source priority"
+      icon: mdi:numeric
+      optionsmap:
+        "Utility Solar Battery": "POP00"
+        "Solar Utility Battery": "POP01"
+        "Solar Battery Utility": "POP02"
+      statusmap:
+        "0": "Utility Solar Battery"
+        "1": "Solar Utility Battery"
+        "2": "Solar Battery Utility"
+  
+  # For HS: 00 for utility first, 01 for solar first, 02 for solar and utility, 03 for only solar charging
+  - platform: pipsolar
+    pipsolar_id: pip8048
+    charger_source_priority:
+      id: ${name}_${inverter}_charger_source_priority_select 
+      name: "Charger source priority"
+      icon: mdi:numeric
+      optionsmap:
+        # "Utility first": "PCP00"
+        "Solar first": "PCP01"
+        "Solar and utility": "PCP02"
+        "Solar only": "PCP03"
+      statusmap:
+        # "0": "Utility first"
+        "1": "Solar first"
+        "2": "Solar and utility"
+        "3": "Solar charging only"
+
+  - platform: pipsolar
+    pipsolar_id: pip8048
+    current_max_ac_charging_current:
+      id: ${name}_${inverter}_current_max_ac_charging_current_select 
+      name: Max AC charge current
+      icon: mdi:current-dc
+      optionsmap:
+        "2A": "MUCHGC002"
+        "10A": "MUCHGC010"
+        "20A": "MUCHGC020"
+        "30A": "MUCHGC030"
+        "40A": "MUCHGC040"
+
+      statusmap:
+        "2": "2A"
+        "10": "10A"
+        "20": "20A"
+        "30": "30A"
+        "40": "40A"
+        "50": "50A"
+        "60": "60A"
+        "70": "70A"
+        "80": "80A"
+        "90": "90A"
+        "100": "100A"
+        "110": "110A"
+        "120": "120A"
+
+  - platform: pipsolar
+    pipsolar_id: pip8048
+    current_max_charging_current:
+      id: ${name}_${inverter}_current_max_charging_current_select 
+      name: Max total charge current
+      icon: mdi:current-dc
+      optionsmap:
+        "10A": "MNCHGC010"
+        "20A": "MNCHGC020"
+        "30A": "MNCHGC030"
+        "40A": "MNCHGC040"
+        "50A": "MNCHGC050"
+
+      statusmap:
+        "10": "10A"
+        "20": "20A"
+        "30": "30A"
+        "40": "40A"
+        "50": "50A"
+        "60": "60A"
+        "70": "70A"
+        "80": "80A"
+        "90": "90A"
+        "100": "100A"
+        "110": "110A"
+        "120": "120A"
