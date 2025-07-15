@@ -56,8 +56,7 @@ wifi:
     static_ip: 10.0.0.32
     gateway: 10.0.0.254
     subnet: 255.255.255.0
-    dns1: 1.1.1.1
-    dns2: 8.8.8.8
+    dns1: 10.0.0.254
 
  #    reboot_timeout: 1h
 
