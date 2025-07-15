@@ -2,8 +2,6 @@ substitutions:
   name: "centurion-d5-evo"
   friendly_name: "Centurion D5"
   comment: "Control Centurion D5 gate motor remotely. Including Kocom bell ringing"
-  project_name: "esphome_centurion_d5"
-  project_version: "1"
 
   relay_1_pin: GPIO32
   relay_2_pin: GPIO33
@@ -40,10 +38,6 @@ api:
 ota:
   - platform: esphome
     password: !secret ota_password
-
-dashboard_import:
-  package_import_url: github://JshStadler/HomeAssistant/ESPHome.Centurion-D5-&-Bell.yaml@main
-  import_full_config: false
 
 wifi:
   ssid: !secret wifi_ssid
