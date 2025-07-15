@@ -1,7 +1,7 @@
 substitutions:
   name: "centurion-d5-evo"
-  friendly_name: "Centurion D5"
-  comment: "Control Centurion D5 gate motor remotely. Including Kocom bell ringing"
+  friendly_name: "Centurion D5 Evo"
+  comment: "Control Centurion D5 Evo gate motor remotely. Including Kocom bell ringing"
 
   relay_1_pin: GPIO32
   relay_2_pin: GPIO33
