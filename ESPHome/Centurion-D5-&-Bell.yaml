@@ -24,8 +24,8 @@ esp32:
     type: esp-idf
 
 # Enable logging
-# logger:
-#   level: INFO
+logger:
+  level: INFO
 
 # Enable Home Assistant API
 api:
@@ -78,7 +78,7 @@ binary_sensor:
     id: bell_sensor
     name: "Bell Sensor"
     icon: mdi:bell    
-    publish_initial_state: true
+    trigger_on_initial_state: true
     filters:
       - delayed_on: 50ms
       - delayed_off: 10s
@@ -90,7 +90,7 @@ binary_sensor:
     entity_category: diagnostic
     icon: mdi:led-outline
     disabled_by_default: true
-    publish_initial_state: true
+    trigger_on_initial_state: true
     filters:
         delayed_on_off: 100ms
     on_multi_click:
