@@ -20,13 +20,6 @@ esphome:
   name: ${name}
   friendly_name: Kodak Inverter
   comment: Axpert 48V Inverter with Bulk Charge Fix and Victron SmartShunt
-  # platformio_options:
-  #   build_flags:
-  #     - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=32768  # 16384 # 8192 # 16384
-  #   platform_packages:
-  #     - framework-arduinoespressif32 @ https://github.com/espressif/arduino-esp32.git#2.0.2
-  #   platform:
-  #     - https://github.com/platformio/platform-espressif32.git#feature/arduino-upstream
    
 esp32:
   board: esp32dev
