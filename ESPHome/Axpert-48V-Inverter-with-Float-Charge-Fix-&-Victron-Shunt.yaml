@@ -20,11 +20,18 @@ esphome:
   name: ${name}
   friendly_name: Kodak Inverter
   comment: Axpert 48V Inverter with Bulk Charge Fix and Victron SmartShunt
+  # platformio_options:
+  #   build_flags:
+  #     - -DCONFIG_ARDUINO_LOOP_STACK_SIZE=32768  # 16384 # 8192 # 16384
+  #   platform_packages:
+  #     - framework-arduinoespressif32 @ https://github.com/espressif/arduino-esp32.git#2.0.2
+  #   platform:
+  #     - https://github.com/platformio/platform-espressif32.git#feature/arduino-upstream
    
 esp32:
   board: esp32dev
   framework:
-    type: esp-idf
+    type: arduino
     
 external_components:
   - source: github://syssi/esphome-pipsolar@pip8048
@@ -55,7 +62,8 @@ wifi:
     static_ip: 10.0.0.50
     gateway: 10.0.0.254
     subnet: 255.255.255.0
-    dns1: 10.0.0.254
+    dns1: 1.1.1.1
+    dns2: 8.8.8.8
 
   # reboot_timeout: 48h #Enable for use without Wi-Fi
 
@@ -311,12 +319,40 @@ number:
     optimistic: true
     unit_of_measurement: 'A'
     icon: mdi:power-plug-battery-outline
-    min_value: 2
+    min_value: 1
     max_value: 10
     step: 1
     initial_value: 4
     restore_value: true
     mode: 'slider' 
+
+  - platform: template
+    name: "Float target SoC"
+    id: ${name}_${inverter}_target_soc
+    optimistic: true
+    unit_of_measurement: '%'
+    icon: mdi:battery-charging-high
+    min_value: 70
+    max_value: 100
+    step: 1
+    initial_value: 95
+    restore_value: true
+    mode: 'slider'
+
+    ######### Joshua's Low SoC Parameters ########
+
+  - platform: template
+    name: "Grid fallback SoC"
+    id: ${name}_${inverter}_grid_fallback_soc
+    optimistic: true
+    unit_of_measurement: '%'
+    icon: mdi:battery-alert-variant-outline
+    min_value: 10
+    max_value: 50
+    step: 1
+    initial_value: 20
+    restore_value: true
+    mode: 'slider'
 
 switch:
 
@@ -428,9 +464,9 @@ sensor:
       id: ${name}_${inverter}_output_load_percent
       name: "Inverter load"
       accuracy_decimals: 0
-    # charger_source_priority: #
-    #   id: ${name}_${inverter}_charger_source_priority #
-    #   name: "Charger source priority" #
+    charger_source_priority:
+      id: ${name}_${inverter}_charger_source_priority
+      name: "Charger source priority"
     grid_voltage:
       id: ${name}_${inverter}_grid_voltage
       name: "Grid voltage"
@@ -469,29 +505,100 @@ sensor:
         filter_out: 0
     battery_charging_current:
       id: ${name}_${inverter}_battery_charging_current
-      name: "Battery charge current"
-      accuracy_decimals: 0
+      name: "Battery charge current"  
       device_class: "current"
       state_class: "measurement"
-      on_value_range:
-        - below: !lambda return (id(${name}_${inverter}_switch_to_float_charge_current).state); 
-          then:
-          - if: 
-              condition: 
-                lambda: return ((float(id(${name}_${inverter}_set_float_stage_voltage).state)) != (float(id(${name}_${inverter}_battery_float_voltage).state)));
+      accuracy_decimals: 0
+      on_value:
+        then:
+          # --- CASE 1: SoC available and below target → Force bulk mode ---
+          - if:
+              condition:
+                lambda: |-
+                  return !isnan(id(${name}_${smartshunt}_state_of_charge).state)
+                      && (id(${name}_${smartshunt}_state_of_charge).state < id(${name}_${inverter}_target_soc).state);
               then:
-                - output.pipsolar.set_level:
-                    id: ${name}_${inverter}_battery_float_voltage_set
-                    value: !lambda return (float(id(${name}_${inverter}_set_float_stage_voltage).state));
-        - above: !lambda return (id(${name}_${inverter}_switch_to_bulk_charge_current).state);
-          then:
-          - if: 
-              condition: 
-                lambda: return (float(id(${name}_${inverter}_battery_bulk_voltage).state)) != (float(id(${name}_${inverter}_battery_float_voltage).state));
+                - if:
+                    condition:
+                      lambda: |-
+                        // Only set if float != bulk
+                        return (float(id(${name}_${inverter}_battery_bulk_voltage).state))
+                            != (float(id(${name}_${inverter}_battery_float_voltage).state));
+                    then:
+                      - output.pipsolar.set_level:
+                          id: ${name}_${inverter}_battery_float_voltage_set
+                          value: !lambda |-
+                            ESP_LOGI("charging_logic", "SOC %.1f%% < %.1f%% → forcing bulk mode",
+                              id(${name}_${smartshunt}_state_of_charge).state,
+                              id(${name}_${inverter}_target_soc).state);
+                            return float(id(${name}_${inverter}_battery_bulk_voltage).state);
+
+          # --- CASE 2: SoC available and at/above target → Use current logic ---
+          - if:
+              condition:
+                lambda: |-
+                  return !isnan(id(${name}_${smartshunt}_state_of_charge).state)
+                      && (id(${name}_${smartshunt}_state_of_charge).state >= id(${name}_${inverter}_target_soc).state);
               then:
-                - output.pipsolar.set_level:
-                    id: ${name}_${inverter}_battery_float_voltage_set
-                    value: !lambda return (float(id(${name}_${inverter}_battery_bulk_voltage).state)); 
+                - if:
+                    condition:
+                      lambda: |-
+                        return (id(${name}_${inverter}_battery_charging_current).state >
+                                id(${name}_${inverter}_switch_to_bulk_charge_current).state)
+                            && ((float(id(${name}_${inverter}_battery_float_voltage).state))
+                                != (float(id(${name}_${inverter}_battery_bulk_voltage).state)));
+                    then:
+                      - output.pipsolar.set_level:
+                          id: ${name}_${inverter}_battery_float_voltage_set
+                          value: !lambda |-
+                            ESP_LOGI("charging_logic", "SOC above target but current high → bulk mode");
+                            return float(id(${name}_${inverter}_battery_bulk_voltage).state);
+                - if:
+                    condition:
+                      lambda: |-
+                        return (id(${name}_${inverter}_battery_charging_current).state <
+                                id(${name}_${inverter}_switch_to_float_charge_current).state)
+                            && ((float(id(${name}_${inverter}_battery_float_voltage).state))
+                                != (float(id(${name}_${inverter}_set_float_stage_voltage).state)));
+                    then:
+                      - output.pipsolar.set_level:
+                          id: ${name}_${inverter}_battery_float_voltage_set
+                          value: !lambda |-
+                            ESP_LOGI("charging_logic", "SOC above target and current low → float stage");
+                            return float(id(${name}_${inverter}_set_float_stage_voltage).state);
+
+          # --- CASE 3: SoC not available (fallback) → Use current-based logic only ---
+          - if:
+              condition:
+                lambda: |-
+                  return isnan(id(${name}_${smartshunt}_state_of_charge).state);
+              then:
+                - if:
+                    condition:
+                      lambda: |-
+                        return (id(${name}_${inverter}_battery_charging_current).state >
+                                id(${name}_${inverter}_switch_to_bulk_charge_current).state)
+                            && ((float(id(${name}_${inverter}_battery_float_voltage).state))
+                                != (float(id(${name}_${inverter}_battery_bulk_voltage).state)));
+                    then:
+                      - output.pipsolar.set_level:
+                          id: ${name}_${inverter}_battery_float_voltage_set
+                          value: !lambda |-
+                            ESP_LOGI("charging_logic", "No SoC available → bulk by current");
+                            return float(id(${name}_${inverter}_battery_bulk_voltage).state);
+                - if:
+                    condition:
+                      lambda: |-
+                        return (id(${name}_${inverter}_battery_charging_current).state <
+                                id(${name}_${inverter}_switch_to_float_charge_current).state)
+                            && ((float(id(${name}_${inverter}_battery_float_voltage).state))
+                                != (float(id(${name}_${inverter}_set_float_stage_voltage).state)));
+                    then:
+                      - output.pipsolar.set_level:
+                          id: ${name}_${inverter}_battery_float_voltage_set
+                          value: !lambda |-
+                            ESP_LOGI("charging_logic", "No SoC available → float by current");
+                            return float(id(${name}_${inverter}_set_float_stage_voltage).state);
     # # battery_capacity_percent:
     #   # id: ${name}_${inverter}_battery_capacity_percent
     #   # name: "Inverter battery capacity percent"
@@ -651,7 +758,6 @@ sensor:
     power_id: ${name}_${inverter}_ac_output_active_power 
     unit_of_measurement: "kWh"
     device_class: "energy"
-    state_class: "measurement"
     accuracy_decimals: 3
     id: ${name}_${inverter}_ac_output_active_power_total_today
     method: trapezoid
@@ -905,6 +1011,23 @@ sensor:
           send_every: 4
           send_first_at: 3
           quantile: .3
+      on_value:
+        then:
+          - if:
+              condition:
+                lambda: |-
+                  return !isnan(x)
+                      && (x < id(${name}_${inverter}_grid_fallback_soc).state)
+                      && (id(${name}_${inverter}_output_source_priority_select).state != "Solar Utility Battery");
+              then:
+                - select.set:
+                    id: ${name}_${inverter}_output_source_priority_select
+                    option: "Solar Utility Battery"
+                - logger.log:
+                    level: WARN
+                    tag: "grid_fallback"
+                    format: "SoC %.1f%% < %.0f%% threshold - switching to Solar Utility Battery"
+                    args: ['x', 'id(${name}_${inverter}_grid_fallback_soc).state']
     time_to_go:
       id: "${name}_${smartshunt}_time_to_go"
       name: "Time to go"
