@@ -66,10 +66,7 @@ preferences:
       
 esp32:
   framework:
-    # type: esp-idf
-    type: arduino
-    # version: 2.0.8 #2.0.5
-    # platform_version: 6.4.0 
+    type: esp-idf
   variant: ESP32
   cpu_frequency: 80MHz
 external_components:
