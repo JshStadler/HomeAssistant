@@ -66,8 +66,7 @@ esp32:
   variant: ESP32
   cpu_frequency: 80MHz
   framework:
-    type: arduino
-    
+    type: esp-idf
 external_components:
   - source: github://syssi/esphome-pipsolar@pip8048
     refresh: 0s  
