@@ -102,7 +102,7 @@ wifi:
 
   ap:
     ssid: "Kodak Fallback Hotspot"
-    password: "VMIII123456" 
+    password: !secret ap_password 
   output_power: 18.5dB
   min_auth_mode: WPA2
 
