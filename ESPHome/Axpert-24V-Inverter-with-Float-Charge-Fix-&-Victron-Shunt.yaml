@@ -71,9 +71,9 @@ esp32:
   cpu_frequency: 80MHz
 external_components:
   - source: github://syssi/esphome-pipsolar@main
-    refresh: 0s  
+    refresh: 6h  
   - source: github://KinDR007/VictronMPPT-ESPHOME@main
-    refresh: 0s
+    refresh: 6h
     
 # Enable logging
 logger:
@@ -1607,15 +1607,15 @@ select:
         "50A": "MNCHGC050"
 
       statusmap:
-        "10": "10A"
-        "20": "20A"
-        "30": "30A"
-        "40": "40A"
-        "50": "50A"
-        "60": "60A"
-        "70": "70A"
-        "80": "80A"
-        "90": "90A"
+        "010": "10A"
+        "020": "20A"
+        "030": "30A"
+        "040": "40A"
+        "050": "50A"
+        "060": "60A"
+        "070": "70A"
+        "080": "80A"
+        "090": "90A"
         "100": "100A"
         "110": "110A"
         "120": "120A"
