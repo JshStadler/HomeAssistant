@@ -2,7 +2,16 @@ substitutions:
   name: "centurion-d5-evo"
   friendly_name: "Centurion D5 Evo"
   comment: "Control Centurion D5 Evo gate motor remotely. Including Kocom bell ringing"
-  gate_ble_build: "gate-ble-v2.5.0-5key-production"
+  gate_ble_build: "gate-ble-v2.7.0-authenticated-live-state-production"
+
+  # Gate LED pulse-meter decoder tuning. pulse_meter captures rising edges
+  # in its ISR path; the shared binary sensor is only used to determine the
+  # final steady ON/OFF level once pulsing has stopped.
+  gate_led_steady_time: "2100ms"
+  gate_led_opening_min_ppm: "70.0"
+  gate_led_opening_max_ppm: "145.0"
+  gate_led_closing_min_ppm: "165.0"
+  gate_led_closing_max_ppm: "330.0"
 
   relay_1_pin: GPIO32
   relay_2_pin: GPIO33
@@ -63,6 +72,23 @@ esphome:
               }
               id(gate_ble_status).set_value("ERR:NO_SESSION");
             });
+            id(gate_ble_device_state).on_read([](uint16_t conn_id) {
+              for (size_t slot = 0; slot < id(gate_ble_conn_ids).size(); ++slot) {
+                if (id(gate_ble_conn_ids)[slot] != conn_id) continue;
+                if (!id(gate_ble_authenticated)[slot]) {
+                  id(gate_ble_device_state).set_value("ERR:AUTH_REQUIRED");
+                  return;
+                }
+                static const std::array<const char *, 8> states{{
+                  "Unknown", "Closed", "Open", "Opening", "Closing",
+                  "Pillar override", "No mains", "Low battery"
+                }};
+                const uint8_t state = id(gate_decoder_state);
+                id(gate_ble_device_state).set_value(states[state < states.size() ? state : 0]);
+                return;
+              }
+              id(gate_ble_device_state).set_value("ERR:NO_SESSION");
+            });
             ESP_LOGW("gate_ble", "BUILD ${gate_ble_build}: API v2 ready; max BLE clients = 5");
         - delay: 1s
         - lambda: |-
@@ -72,9 +98,14 @@ esphome:
                 esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P9);
             ESP_LOGW("gate_ble", "BLE TX power set to +9 dBm (default=%s, advertising=%s)",
                      esp_err_to_name(default_result), esp_err_to_name(advertising_result));
+    - priority: -100
+      then:
+        - text_sensor.template.publish:
+            id: ble_firmware_build
+            state: "${gate_ble_build}"
 
 esp32:
-  cpu_frequency: 160MHz
+  cpu_frequency: 80MHz
   framework:
     type: esp-idf
   variant: ESP32
@@ -85,6 +116,7 @@ logger:
   baud_rate: 0
   logs:
     gate_ble: INFO
+    gate_decoder: INFO
 
 # Enable Home Assistant API
 api:
@@ -138,6 +170,10 @@ globals:
     type: 'std::array<std::string, 5>'
     restore_value: false
     initial_value: '{"READY", "READY", "READY", "READY", "READY"}'
+  - id: gate_ble_authenticated
+    type: 'std::array<bool, 5>'
+    restore_value: false
+    initial_value: '{false, false, false, false, false}'
   - id: gate_ble_split_hmac_part1
     type: 'std::array<std::array<uint8_t, 16>, 5>'
     restore_value: false
@@ -162,6 +198,30 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+
+  # Centurion status decoder state.
+  # 0=unknown, 1=closed, 2=open, 3=opening, 4=closing,
+  # 5=pillar override, 6=no mains, 7=low battery.
+  - id: gate_decoder_state
+    type: uint8_t
+    restore_value: false
+    initial_value: '0'
+  - id: gate_motion_candidate
+    type: uint8_t
+    restore_value: false
+    initial_value: '0'
+  - id: gate_motion_samples
+    type: uint8_t
+    restore_value: false
+    initial_value: '0'
+  - id: gate_prev_rate_1
+    type: float
+    restore_value: false
+    initial_value: '0.0'
+  - id: gate_prev_rate_2
+    type: float
+    restore_value: false
+    initial_value: '0.0'
 
 # Five connections each receive independent nonce, status, and Garmin split-write
 # state. Challenge/status are read per connection rather than broadcast.
@@ -194,6 +254,7 @@ esp32_ble_server:
           memcpy(id(gate_ble_nonces)[slot].data() + offset, &random, 4);
         }
         id(gate_ble_split_pending)[slot] = false;
+        id(gate_ble_authenticated)[slot] = false;
         id(gate_ble_statuses)[slot] = "READY";
         ESP_LOGW("gate_ble", "BLE EVENT: client %u connected in session slot %d",
                  static_cast<unsigned>(id), slot);
@@ -203,6 +264,7 @@ esp32_ble_server:
           if (id(gate_ble_conn_ids)[slot] == id) {
             id(gate_ble_conn_ids)[slot] = 65535;
             id(gate_ble_split_pending)[slot] = false;
+            id(gate_ble_authenticated)[slot] = false;
             id(gate_ble_nonces)[slot].fill(0);
             id(gate_ble_statuses)[slot] = "READY";
             ESP_LOGW("gate_ble", "BLE EVENT: client %u disconnected from session slot %u",
@@ -228,6 +290,15 @@ esp32_ble_server:
           read: true
           value:
             data: "READY"
+            type: string
+
+        # Current decoded gate state. Reads are connection-specific and return
+        # data only after that BLE session has completed API-v2 authentication.
+        - id: gate_ble_device_state
+          uuid: b1b2c3d4-e5f6-7890-abcd-ef123456789b
+          read: true
+          value:
+            data: "ERR:AUTH_REQUIRED"
             type: string
 
         # Android path: command byte followed by a 32-byte HMAC-SHA256.
@@ -329,11 +400,14 @@ esp32_ble_server:
                     ESP_LOGW("gate_ble", "Android authentication failed for client %u",
                              static_cast<unsigned>(id));
                     id(gate_ble_statuses)[slot] = "ERR:AUTH";
+                    id(gate_ble_authenticated)[slot] = false;
                   } else if (command == 0x01) {
+                    id(gate_ble_authenticated)[slot] = true;
                     ESP_LOGI("gate_ble", "Android client %u authenticated as %s",
                              static_cast<unsigned>(id), key_names[matched_key].c_str());
                     id(gate_ble_statuses)[slot] = "OK:AUTH";
                   } else {
+                    id(gate_ble_authenticated)[slot] = true;
                     const uint32_t current_ms = millis();
                     if (id(gate_ble_has_pressed) &&
                         current_ms - id(gate_ble_last_press_ms) < 1000) {
@@ -490,11 +564,14 @@ esp32_ble_server:
                     ESP_LOGW("gate_ble", "Garmin authentication failed for client %u",
                              static_cast<unsigned>(id));
                     id(gate_ble_statuses)[slot] = "ERR:AUTH";
+                    id(gate_ble_authenticated)[slot] = false;
                   } else if (command == 0x01) {
+                    id(gate_ble_authenticated)[slot] = true;
                     ESP_LOGI("gate_ble", "Garmin client %u authenticated as %s",
                              static_cast<unsigned>(id), key_names[matched_key].c_str());
                     id(gate_ble_statuses)[slot] = "OK:AUTH";
                   } else {
+                    id(gate_ble_authenticated)[slot] = true;
                     const uint32_t current_ms = millis();
                     if (id(gate_ble_has_pressed) &&
                         current_ms - id(gate_ble_last_press_ms) < 1000) {
@@ -518,7 +595,7 @@ esp32_ble_server:
           uuid: b1b2c3d4-e5f6-7890-abcd-ef1234567897
           read: true
           value:
-            data: "blekey|2|gate-main|gate|press"
+            data: "blekey|2|gate-main|gate|press,state"
             type: string
 
 event:
@@ -555,7 +632,16 @@ binary_sensor:
       - delayed_off: 10s
 
   - platform: gpio
-    pin: ${led_pin}
+    pin:
+      number: ${led_pin}
+      allow_other_uses: true
+      mode:
+        input: true
+    # This shared GPIO sensor is intentionally polling. It does NOT decode the
+    # blink timing; pulse_meter below does that using interrupts. Its only job
+    # is to tell us whether the LED is steadily ON or OFF after the pulse_meter
+    # timeout expires.
+    use_interrupt: false
     id: status_led
     name: "Status LED"
     entity_category: diagnostic
@@ -563,97 +649,101 @@ binary_sensor:
     disabled_by_default: true
     trigger_on_initial_state: true
     filters:
-      - delayed_on_off: 100ms
-    on_multi_click:
-      - timing:
-          - OFF for at least 2000ms
-        then:
-          - logger.log: "Closed"
-          - text_sensor.template.publish:
-              id: status
-              state: "Closed"
-          - lambda: |-
-              id(gate).current_operation = CoverOperation::COVER_OPERATION_IDLE;
-              id(gate).publish_state();
-        invalid_cooldown: 100ms
+      - delayed_on_off: 20ms
 
-      - timing:
-          - ON for at least 2000ms
-        then:
-          - logger.log: "Open"
-          - text_sensor.template.publish:
-              id: status
-              state: "Open"
-          - lambda: |-
-              id(gate).current_operation = CoverOperation::COVER_OPERATION_IDLE;
-              id(gate).publish_state();
-        invalid_cooldown: 100ms
+script:
+  - id: gate_publish_closed
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 1;
+      - logger.log: "Closed"
+      - text_sensor.template.publish:
+          id: status
+          state: "Closed"
+      - cover.template.publish:
+          id: gate
+          state: CLOSED
+          current_operation: IDLE
 
-      - timing:
-          - ON for 100ms to 200ms
-          - OFF for 100ms to 200ms
-          - ON for 100ms to 200ms
-        then:
-          - logger.log: "Closing"
-          - text_sensor.template.publish:
-              id: status
-              state: "Closing"
-          - lambda: |-
-              id(gate).current_operation = CoverOperation::COVER_OPERATION_CLOSING;
-              id(gate).publish_state();
-        invalid_cooldown: 100ms
+  - id: gate_publish_open
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 2;
+      - logger.log: "Open"
+      - text_sensor.template.publish:
+          id: status
+          state: "Open"
+      - cover.template.publish:
+          id: gate
+          state: OPEN
+          current_operation: IDLE
 
-      - timing:
-          - ON for 200ms to 400ms
-          - OFF for 200ms to 400ms
-          - ON for 200ms to 400ms
-          - OFF for 200ms to 400ms
-          - ON for 200ms to 400ms
-        then:
-          - logger.log: "Opening"
-          - text_sensor.template.publish:
-              id: status
-              state: "Opening"
-          - lambda: |-
-              id(gate).current_operation = CoverOperation::COVER_OPERATION_OPENING;
-              id(gate).publish_state();
-        invalid_cooldown: 100ms
+  - id: gate_publish_opening
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 3;
+      - logger.log: "Opening"
+      - text_sensor.template.publish:
+          id: status
+          state: "Opening"
+      - cover.template.publish:
+          id: gate
+          current_operation: OPENING
 
-      - timing:
-          - ON for 200ms to 300ms
-          - OFF for 1700ms to 1800ms
-        then:
-          - logger.log: "Pillar light override"
-          - text_sensor.template.publish:
-              id: status
-              state: "Pillar light override"
-        invalid_cooldown: 100ms
+  - id: gate_publish_closing
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 4;
+      - logger.log: "Closing"
+      - text_sensor.template.publish:
+          id: status
+          state: "Closing"
+      - cover.template.publish:
+          id: gate
+          current_operation: CLOSING
 
-      - timing:
-          - ON for 200ms to 300ms
-          - OFF for 200ms to 300ms
-          - ON for 200ms to 300ms
-          - OFF for 1200ms to 1400ms
-        then:
-          - logger.log: "No Mains"
-          - text_sensor.template.publish:
-              id: status
-              state: "No Mains"
-        invalid_cooldown: 100ms
+  - id: gate_publish_pillar_override
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 5;
+      - logger.log: "Pillar light override"
+      - text_sensor.template.publish:
+          id: status
+          state: "Pillar light override"
+      - cover.template.publish:
+          id: gate
+          current_operation: IDLE
 
-      - timing:
-          - ON for 200ms to 300ms
-          - OFF for 200ms to 300ms
-          - ON for 200ms to 300ms
-          - OFF for 200ms to 300ms
-          - ON for 200ms to 300ms
-          - OFF for 500ms to 1000ms
-        then:
-          - logger.log: "Low Battery"
-          - text_sensor.template.publish:
-              id: status
-              state: "Low Battery"
-        invalid_cooldown: 100ms
+  - id: gate_publish_no_mains
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 6;
+      - logger.log: "No Mains"
+      - text_sensor.template.publish:
+          id: status
+          state: "No Mains"
+      - cover.template.publish:
+          id: gate
+          current_operation: IDLE
+
+  - id: gate_publish_low_battery
+    mode: restart
+    then:
+      - lambda: |-
+          id(gate_decoder_state) = 7;
+      - logger.log: "Low Battery"
+      - text_sensor.template.publish:
+          id: status
+          state: "Low Battery"
+      - cover.template.publish:
+          id: gate
+          current_operation: IDLE
 
 output:
   - platform: gpio
@@ -709,14 +799,6 @@ cover:
     name: "Gate"
     device_class: gate
     id: gate
-    lambda: |-
-      if (id(status).state == "Open") {
-        return COVER_OPEN;
-      } else if (id(status).state == "Closed") {
-        return COVER_CLOSED;
-      } else {
-        return {};
-      }
     open_action:
       - button.press: button_1
     close_action:
@@ -734,12 +816,11 @@ text_sensor:
     update_interval: never
 
   - platform: template
+    id: ble_firmware_build
     name: "BLE Firmware Build"
     icon: mdi:bluetooth
     entity_category: diagnostic
     update_interval: never
-    lambda: |-
-      return {"${gate_ble_build}"};
 
   - platform: template
     icon: mdi:information-outline
@@ -747,6 +828,150 @@ text_sensor:
     name: "Status"
 
 sensor:
+  # ISR-backed movement decoder. pulse_meter measures the interval between
+  # rising edges, so 100-200 ms ON/OFF closing flashes produce a much higher
+  # pulses/min value than the 200-400 ms opening flashes.
+  - platform: pulse_meter
+    pin:
+      number: ${led_pin}
+      allow_other_uses: true
+      mode:
+        input: true
+    id: gate_led_pulse_rate
+    name: "Gate LED Pulse Rate"
+    icon: mdi:pulse
+    entity_category: diagnostic
+    disabled_by_default: true
+    accuracy_decimals: 1
+    internal_filter: 30ms
+    internal_filter_mode: PULSE
+    timeout: ${gate_led_steady_time}
+    on_value:
+      then:
+        - lambda: |-
+            const float rate = x;
+            const float opening_min = ${gate_led_opening_min_ppm};
+            const float opening_max = ${gate_led_opening_max_ppm};
+            const float closing_min = ${gate_led_closing_min_ppm};
+            const float closing_max = ${gate_led_closing_max_ppm};
+
+            ESP_LOGI("gate_decoder", "LED pulse rate %.1f pulses/min", rate);
+
+            const auto reset_motion_candidate = [&]() {
+              id(gate_motion_candidate) = 0;
+              id(gate_motion_samples) = 0;
+            };
+            const auto reset_rate_history = [&]() {
+              id(gate_prev_rate_1) = 0.0f;
+              id(gate_prev_rate_2) = 0.0f;
+            };
+            const auto remember_rate = [&]() {
+              id(gate_prev_rate_2) = id(gate_prev_rate_1);
+              id(gate_prev_rate_1) = rate;
+            };
+
+            // pulse_meter publishes zero after gate_led_steady_time with no
+            // rising edge. At that point the polling binary sensor has had
+            // ample time to settle and can safely identify final Open/Closed.
+            if (rate <= 0.1f) {
+              reset_motion_candidate();
+              reset_rate_history();
+
+              if (id(status_led).state) {
+                if (id(gate_decoder_state) != 2)
+                  id(gate_publish_open).execute();
+              } else {
+                if (id(gate_decoder_state) != 1)
+                  id(gate_publish_closed).execute();
+              }
+              return;
+            }
+
+            // Ignore special-pattern classification for the first pulse after
+            // a steady state. There is no useful previous interval yet.
+            const float prev1 = id(gate_prev_rate_1);
+            const float prev2 = id(gate_prev_rate_2);
+
+            // No mains: a normal ~0.4-0.6 s pulse period followed by the
+            // distinctive ~1.4-1.7 s long period. Check this prefix-qualified
+            // pattern before the broader pillar-light range below.
+            if (prev1 >= 90.0f && prev1 <= 165.0f &&
+                rate >= 30.0f && rate <= 50.0f) {
+              ESP_LOGI("gate_decoder", "No Mains pulse pattern detected");
+              reset_motion_candidate();
+              reset_rate_history();
+              id(gate_publish_no_mains).execute();
+              return;
+            }
+
+            // Pillar-light override: roughly one pulse every ~1.9-2.1 s.
+            if (prev1 > 0.0f && rate >= 25.0f && rate <= 40.0f) {
+              ESP_LOGI("gate_decoder", "Pillar light override pattern at %.1f ppm", rate);
+              reset_motion_candidate();
+              reset_rate_history();
+              id(gate_publish_pillar_override).execute();
+              return;
+            }
+
+            // Low battery: two ~0.4-0.6 s periods followed by a longer
+            // ~0.7-1.3 s period. Check the full 46-86 ppm range before
+            // movement classification; the two normal prefix periods keep
+            // this distinct from a genuine opening pulse train.
+            if (prev2 >= 90.0f && prev2 <= 165.0f &&
+                prev1 >= 90.0f && prev1 <= 165.0f &&
+                rate >= 45.0f && rate <= 90.0f) {
+              ESP_LOGI("gate_decoder", "Low Battery pulse pattern detected");
+              reset_motion_candidate();
+              reset_rate_history();
+              id(gate_publish_low_battery).execute();
+              return;
+            }
+
+            remember_rate();
+
+            // Fast pulse train = Closing. Require two consecutive samples to
+            // avoid a single odd interval changing the Home Assistant state.
+            if (rate >= closing_min && rate <= closing_max) {
+              if (id(gate_motion_candidate) == 4) {
+                if (id(gate_motion_samples) < 255)
+                  id(gate_motion_samples)++;
+              } else {
+                id(gate_motion_candidate) = 4;
+                id(gate_motion_samples) = 1;
+              }
+
+              if (id(gate_motion_samples) >= 2 && id(gate_decoder_state) != 4) {
+                ESP_LOGI("gate_decoder", "Closing confirmed at %.1f ppm", rate);
+                id(gate_publish_closing).execute();
+              }
+              return;
+            }
+
+            // Slower continuous pulse train = Opening. Three consecutive
+            // samples are required so No-Mains/Low-Battery prefixes are not
+            // mistaken for gate movement.
+            if (rate >= opening_min && rate <= opening_max) {
+              if (id(gate_motion_candidate) == 3) {
+                if (id(gate_motion_samples) < 255)
+                  id(gate_motion_samples)++;
+              } else {
+                id(gate_motion_candidate) = 3;
+                id(gate_motion_samples) = 1;
+              }
+
+              if (id(gate_motion_samples) >= 3 && id(gate_decoder_state) != 3) {
+                ESP_LOGI("gate_decoder", "Opening confirmed at %.1f ppm", rate);
+                id(gate_publish_opening).execute();
+              }
+              return;
+            }
+
+            // 145-165 ppm is intentionally a dead-band around the nominal
+            // opening/closing boundary. Other unrecognised rates also reset
+            // only the movement candidate; final Open/Closed still comes from
+            // the pulse_meter timeout.
+            reset_motion_candidate();
+
   - platform: uptime
     name: Uptime
     id: sys_uptime
