@@ -1,0 +1,98 @@
+esphome:
+  name: led-strip-window
+  friendly_name: LED Strip Window
+
+esp32:
+  variant: ESP32
+  flash_mode: dio
+  cpu_frequency: 80MHz
+  # framework:
+  #   type: arduino
+
+# Enable logging
+logger:
+  level: INFO
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 15min
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Optional manual IP
+  manual_ip:
+    static_ip: 10.0.0.39
+    gateway: 10.0.0.254
+    subnet: 255.255.255.0
+    dns1: 10.0.0.254
+ #    reboot_timeout: 1h
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Led Strip Window"
+    password: !secret ap_password
+
+  output_power: 8.5dB
+  min_auth_mode: WPA2
+captive_portal:
+
+# web_server:
+#   port: 80
+#   auth:
+#     username: !secret web_server_username
+#     password: !secret web_server_password
+#     type: digest
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: led_strip
+    chipset: WS2812
+    pin: GPIO19
+    num_leds: 50
+    channel_colors: RGB
+    name: "Window Light"
+    restore_mode: RESTORE_DEFAULT_OFF
+    effects:
+      - addressable_rainbow:
+
+sensor:
+
+  - platform: uptime
+    name: Uptime
+    id: sys_uptime
+    device_class: "duration"
+    state_class: "TOTAL_INCREASING"
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  - platform: wifi_signal 
+    name: RSSI
+    id: wifi_signal_db
+    update_interval: 60s
+    device_class: "signal_strength"
+    state_class: "measurement"
+    entity_category: "diagnostic"
+
+# light:
+#   - platform: fastled_clockless
+#     id: led_strip
+#     chipset: ws2812
+#     pin: GPIO19
+#     num_leds: 50
+#     rgb_order: RGB
+#     name: Light
+#     effects:
+#       - addressable_rainbow:
+
+button:
+  - platform: restart
+    icon: mdi:power-cycle
+    name: "ESP Reboot"
