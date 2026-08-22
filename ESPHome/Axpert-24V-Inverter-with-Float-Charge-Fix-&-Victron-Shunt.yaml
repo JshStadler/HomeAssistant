@@ -70,7 +70,7 @@ esp32:
   variant: ESP32
   cpu_frequency: 80MHz
 external_components:
-  - source: github://syssi/esphome-pipsolar@pip8048
+  - source: github://syssi/esphome-pipsolar@main
     refresh: 0s  
   - source: github://KinDR007/VictronMPPT-ESPHOME@main
     refresh: 0s
@@ -202,44 +202,44 @@ victron:
   - id: victron0
     uart_id: uart_0
 
-pipsolar:
+pip8048:
   - uart_id: uart_1
-    id: pip8048 
+    id: inverter0
     #update_interval: 5s
 
     
 output:
-  - platform: pipsolar
-    pipsolar_id: pip8048 
+  - platform: pip8048
+    pipsolar_id: inverter0
     battery_bulk_voltage:
       id: ${name}_${inverter}_battery_bulk_voltage_set
       possible_values: [25.0,25.1,25.2,25.3,25.4,25.5,25.6,25.7,25.8,25.9,26.0,26.1,26.2,26.3,26.4,26.5,26.6,26.7,26.8,26.9,27.0,27.1,27.2,27.3,27.4,27.5,27.6,27.7,27.8,27.9,28.0,28.1,28.2,28.3,28.4,28.5,28.6,28.7,28.8,28.9,29.0,29.1,29.2,29.3,29.4,29.5,29.6,29.7,29.8,29.9,30.0,30.1,30.2,30.3,30.4,30.5,30.6,30.7,30.8,30.9,31.0]
   
-  - platform: pipsolar
-    pipsolar_id: pip8048 
+  - platform: pip8048
+    pipsolar_id: inverter0
     battery_float_voltage:
       id: ${name}_${inverter}_battery_float_voltage_set
       possible_values: [25.0,25.1,25.2,25.3,25.4,25.5,25.6,25.7,25.8,25.9,26.0,26.1,26.2,26.3,26.4,26.5,26.6,26.7,26.8,26.9,27.0,27.1,27.2,27.3,27.4,27.5,27.6,27.7,27.8,27.9,28.0,28.1,28.2,28.3,28.4,28.5,28.6,28.7,28.8,28.9,29.0,29.1,29.2,29.3,29.4,29.5,29.6,29.7,29.8,29.9,30.0,30.1,30.2,30.3,30.4,30.5,30.6,30.7,30.8,30.9,31.0]
   
-  # - platform: pipsolar
+  # - platform: pip8048
   #   pipsolar_id: pip8048 
   #   current_max_charging_current:
   #     id: ${name}_${inverter}_current_max_charging_current_set
   #     possible_values: [10,20,30,40,50,60,70,80]
 
-  # - platform: pipsolar
+  # - platform: pip8048
   #   pipsolar_id: pip8048 
   #   current_max_ac_charging_current:
   #     id: ${name}_${inverter}_current_max_ac_charging_current_set
   #     possible_values: [2,10,20,30,40,50,60,70,80]    
       
-  - platform: pipsolar
-    pipsolar_id: pip8048 
+  - platform: pip8048
+    pipsolar_id: inverter0
     battery_under_voltage:
       id: ${name}_${inverter}_battery_under_voltage_set
       possible_values: [21.0, 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8, 21.9, 22.0, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 22.7, 22.8, 22.9, 23.0, 23.1, 23.2, 23.3, 23.4, 23.5, 23.6, 23.7, 23.8, 23.9, 24.0]
   
-  # - platform: pipsolar
+  # - platform: pip8048
   #   pipsolar_id: pip8048 
   #   battery_recharge_voltage:
   #     id: ${name}_${inverter}_battery_recharge_voltage_set
@@ -742,8 +742,8 @@ sensor:
     state_class: "measurement"
     entity_category: "diagnostic"
     
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
     # grid_rating_voltage:
     #   id: ${name}_${inverter}_grid_rating_voltage
     #   name: ${name}_${inverter}_grid_rating_voltage
@@ -1424,8 +1424,8 @@ binary_sensor:
         return false;
       }
 
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
 #     warning_battery_equalization:
 #       id: ${name}_${inverter}_warning_battery_equalization
 #       name: "Battery Equalization Status"
@@ -1532,8 +1532,8 @@ text_sensor:
     
 
 select:
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
     output_source_priority:
       id: ${name}_${inverter}_output_source_priority_select 
       name: "Output source priority"
@@ -1548,8 +1548,8 @@ select:
         "2": "Solar Battery Utility"
   
   # For HS: 00 for utility first, 01 for solar first, 02 for solar and utility, 03 for only solar charging
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
     charger_source_priority:
       id: ${name}_${inverter}_charger_source_priority_select 
       name: "Charger source priority"
@@ -1565,8 +1565,8 @@ select:
         "2": "Solar and utility"
         "3": "Solar only"
 
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
     current_max_ac_charging_current:
       id: ${name}_${inverter}_current_max_ac_charging_current_select 
       name: Max AC charge current
@@ -1593,8 +1593,8 @@ select:
         "110": "110A"
         "120": "120A"
 
-  - platform: pipsolar
-    pipsolar_id: pip8048
+  - platform: pip8048
+    pipsolar_id: inverter0
     current_max_charging_current:
       id: ${name}_${inverter}_current_max_charging_current_select 
       name: Max total charge current
