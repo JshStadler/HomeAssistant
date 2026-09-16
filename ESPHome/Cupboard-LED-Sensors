@@ -29,7 +29,7 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
@@ -108,6 +108,7 @@ sensor:
     name: Uptime
     id: sys_uptime
     update_interval: 60s
+    state_class: total_increasing
     entity_category: "diagnostic"
 
   - platform: wifi_signal 
