@@ -260,7 +260,7 @@ number:
     unit_of_measurement: 'V'
     icon: mdi:sine-wave
     min_value: 27.0
-    max_value: 29.0
+    max_value: 28.2
     step:  0.1
     initial_value: 28.2
     restore_value: true
@@ -280,7 +280,7 @@ number:
     min_value: 26.5
     max_value: 28.2
     step:  0.1
-    initial_value: 26.8
+    initial_value: 27.0
     restore_value: true
     mode: 'slider'
     on_value:
@@ -327,6 +327,23 @@ number:
  
     ######### LiFePO4 Charging Parameters ########
 
+  # Recommended normal settings for the 24V Mecer EC4S2P200 bank:
+  #   Bulk charge voltage:     28.2V
+  #   Float stage voltage:     27.0V
+  #   Float target SoC:        95%
+  #   Bulk restart SoC:        93%
+  #   Switch to float current: 3A
+  #   Switch to bulk current:  4A
+  #
+  # Recommended Victron SmartShunt settings (configured in VictronConnect):
+  #   Capacity:                200Ah
+  #   Charged voltage:         26.8V
+  #   Tail current:            4.0%
+  #   Charged detection time:  3min
+  #   Peukert exponent:        1.05
+  #   Charge efficiency:       99%
+  #   Current threshold:       0.10A
+
   - platform: template
     name: Set float stage voltage
     id: ${name}_${inverter}_set_float_stage_voltage
@@ -334,9 +351,9 @@ number:
     unit_of_measurement: 'V'
     icon: mdi:power-plug-battery-outline
     min_value: 26.5
-    max_value: 27.5
+    max_value: 28.2
     step: 0.1
-    initial_value: 26.9
+    initial_value: 27.0
     restore_value: true
     mode: 'slider'
     on_value:
@@ -487,7 +504,7 @@ script:
                   && !isnan(target_soc)
                   && !isnan(float_current)
                   && !isnan(bulk_current)
-                  && (float_v < bulk_v)
+                  && (float_v <= bulk_v)
                   && (restart_soc < target_soc)
                   && (float_current < bulk_current);
 
@@ -716,7 +733,7 @@ script:
             - lambda: |-
                 ESP_LOGE(
                   "charging_logic",
-                  "Invalid charging settings: require FLOAT V < BULK V, restart SoC < target SoC, and float current < bulk current"
+                  "Invalid charging settings: require FLOAT V <= BULK V, restart SoC < target SoC, and float current < bulk current"
                 );
 
 switch:
