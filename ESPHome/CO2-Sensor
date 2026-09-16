@@ -1,0 +1,205 @@
+esphome:
+  name: co2-sensor
+  friendly_name: CO₂ Sensor
+  comment: "Monitor CO₂ levels"
+  on_boot:
+    priority: 200
+    then:
+      - binary_sensor.template.publish:
+          id: calibration_in_progress
+          state: OFF
+      - delay: 2s
+      - script.execute: apply_abc_mode
+
+esp32:
+  variant: esp32
+  cpu_frequency: 80MHz
+  framework:
+    type: esp-idf  # Switched from arduino: better memory & WiFi stability for long-running sensors
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Co2-Sensor Fallback Hotspot"
+    password: !secret ap_password
+
+  min_auth_mode: WPA2
+  output_power: 8.5dB
+  
+captive_portal:
+
+substitutions:
+  mhz19c_update_interval: 60s
+  node_name: MHZ19C
+
+uart:
+  - id: uart_mhz19c
+    rx_pin: 16
+    tx_pin: 17
+    baud_rate: 9600
+
+globals:
+  - id: abc_mode
+    type: int
+    restore_value: true
+    initial_value: "4"
+    # 0 = Off
+    # 1 = 24 hours
+    # 2 = 2 days  (48h)
+    # 3 = 3 days  (72h)
+    # 4 = 4 days  (96h)
+    # 5 = 5 days (120h)
+    # 6 = 6 days (144h)
+    # 7 = 7 days (168h)
+
+sensor:
+  - platform: mhz19
+    id: co2_sensor
+    uart_id: uart_mhz19c
+    co2:
+      name: "${node_name} CO₂"
+      id: co2_value
+    update_interval: ${mhz19c_update_interval}
+    automatic_baseline_calibration: false  # Controlled via UART in apply_abc_mode
+
+binary_sensor:
+  - platform: template
+    name: "${node_name} Calibration In Progress"
+    id: calibration_in_progress
+    device_class: running
+
+script:
+  - id: apply_abc_mode
+    then:
+      - lambda: |-
+          // ── ABC period command (0x7A) ────────────────────────────────────
+          // Period = 16-bit big-endian hours in bytes [3] (D1) and [4] (D2)
+          // Checksum = (~(0x01 + 0x7A + D1 + D2) + 1) & 0xFF
+          //
+          // | Mode    | Hours | D2   | Checksum |
+          // |---------|-------|------|----------|
+          // | 24h     |    24 | 0x18 |     0x6D |
+          // | 2 days  |    48 | 0x30 |     0x55 |
+          // | 3 days  |    72 | 0x48 |     0x3D |
+          // | 4 days  |    96 | 0x60 |     0x25 |
+          // | 5 days  |   120 | 0x78 |     0x0D |
+          // | 6 days  |   144 | 0x90 |     0xF5 |
+          // | 7 days  |   168 | 0xA8 |     0xDD |
+
+          const uint8_t ABC_DISABLE[] = {0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86};
+          const uint8_t ABC_ENABLE[]  = {0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6};
+
+          if (id(abc_mode) == 0) {
+            id(uart_mhz19c).write_array(ABC_DISABLE, sizeof(ABC_DISABLE));
+            return;
+          }
+
+          id(uart_mhz19c).write_array(ABC_ENABLE, sizeof(ABC_ENABLE));
+
+          uint8_t period_cmd[] = {0xFF, 0x01, 0x7A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+          switch (id(abc_mode)) {
+            case 1: period_cmd[4] = 0x18; period_cmd[8] = 0x6D; break; // 24 hours
+            case 2: period_cmd[4] = 0x30; period_cmd[8] = 0x55; break; // 2 days
+            case 3: period_cmd[4] = 0x48; period_cmd[8] = 0x3D; break; // 3 days
+            case 4: period_cmd[4] = 0x60; period_cmd[8] = 0x25; break; // 4 days
+            case 5: period_cmd[4] = 0x78; period_cmd[8] = 0x0D; break; // 5 days
+            case 6: period_cmd[4] = 0x90; period_cmd[8] = 0xF5; break; // 6 days
+            case 7: period_cmd[4] = 0xA8; period_cmd[8] = 0xDD; break; // 7 days
+          }
+          id(uart_mhz19c).write_array(period_cmd, sizeof(period_cmd));
+
+  - id: calibrate_delayed
+    then:
+      - binary_sensor.template.publish:
+          id: calibration_in_progress
+          state: ON
+      - delay: 20min
+      - mhz19.calibrate_zero: co2_sensor
+      - binary_sensor.template.publish:
+          id: calibration_in_progress
+          state: OFF
+      - switch.turn_off: co2_calibrate_delayed  # Auto-off when done
+
+select:
+  - platform: template
+    name: "${node_name} ABC Mode"
+    id: abc_mode_select
+    optimistic: true
+    restore_value: true
+    options:
+      - "Off"
+      - "24 hours"
+      - "2 days"
+      - "3 days"
+      - "4 days"
+      - "5 days"
+      - "6 days"
+      - "7 days"
+    initial_option: "Off"
+    on_value:
+      then:
+        - lambda: |-
+            if      (x == "Off")      id(abc_mode) = 0;
+            else if (x == "24 hours") id(abc_mode) = 1;
+            else if (x == "2 days")   id(abc_mode) = 2;
+            else if (x == "3 days")   id(abc_mode) = 3;
+            else if (x == "4 days")   id(abc_mode) = 4;
+            else if (x == "5 days")   id(abc_mode) = 5;
+            else if (x == "6 days")   id(abc_mode) = 6;
+            else if (x == "7 days")   id(abc_mode) = 7;
+        - script.execute: apply_abc_mode
+
+switch:
+  # Toggle on to start 20-minute stabilisation then calibrate.
+  # Toggle off early to cancel. Auto-turns off when calibration completes.
+  - platform: template
+    name: "${node_name} Calibrate CO₂ (20 min)"
+    id: co2_calibrate_delayed
+    optimistic: true
+    on_turn_on:
+      then:
+        - if:
+            condition:
+              binary_sensor.is_on: calibration_in_progress
+            then:
+              - logger.log:
+                  level: WARN
+                  format: "Calibration already in progress, ignoring"
+              - switch.turn_off: co2_calibrate_delayed
+            else:
+              - script.execute: calibrate_delayed
+    on_turn_off:
+      then:
+        - script.stop: calibrate_delayed
+        - binary_sensor.template.publish:
+            id: calibration_in_progress
+            state: OFF
+
+button:
+  # Immediately calibrates — use only after sensor has already stabilised in fresh air.
+  # Blocked while 20-min calibration is running.
+  - platform: template
+    name: "${node_name} Calibrate CO₂ (Immediate)"
+    on_press:
+      then:
+        - if:
+            condition:
+              binary_sensor.is_on: calibration_in_progress
+            then:
+              - logger.log:
+                  level: WARN
+                  format: "Calibration in progress, ignoring immediate request"
+            else:
+              - mhz19.calibrate_zero: co2_sensor
