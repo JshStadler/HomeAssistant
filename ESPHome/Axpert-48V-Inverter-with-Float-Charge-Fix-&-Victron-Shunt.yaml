@@ -1444,8 +1444,8 @@ sensor:
             ignore_out_of_range: true
         - median:
             window_size: 5
-            send_every: 1
-            send_first_at: 1
+            send_every: 5
+            send_first_at: 5
         - delta: 0.0
     amount_of_charged_energy:
       id: "${name}_${smartshunt}_amount_of_charged_energy"
@@ -1456,8 +1456,8 @@ sensor:
             ignore_out_of_range: true
         - median:
             window_size: 5
-            send_every: 1
-            send_first_at: 1
+            send_every: 5
+            send_first_at: 5
         - delta: 0.0
           
   - platform: template
@@ -1813,3 +1813,4 @@ select:
         "100": "100A"
         "110": "110A"
         "120": "120A"
+
