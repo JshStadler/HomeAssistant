@@ -59,7 +59,7 @@ light:
     num_leds: 50
     channel_colors: RGB
     name: "Window Light"
-    restore_mode: RESTORE_DEFAULT_OFF
+    restore_state: all
     effects:
       - addressable_rainbow:
 
