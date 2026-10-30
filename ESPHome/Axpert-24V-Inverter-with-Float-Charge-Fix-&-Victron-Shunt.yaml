@@ -21,7 +21,7 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: Inverter & Shunt
-  comment: Axpert 24V Inverter with LiFePO4 SoC Hysteresis, Filtered SmartShunt SoC
+  comment: Axpert 24V Inverter with LiFePO4 SoC Hysteresis, Filtered SmartShunt SoC, USB Grid Fallback
   #  name_add_mac_suffix: true
   # Preserve the original current-threshold entity IDs. If an older build
   # restores the previous 3A BULK / 4A FLOAT values, automatically normalize
@@ -125,7 +125,7 @@ web_server:
 
 globals:
   # True only when this ESPHome automation changed output priority to
-  # Solar Utility Battery because of low SoC.  This lets recovery logic
+  # Utility Solar Battery (USB) because of low SoC. This lets recovery logic
   # restore SBU without undoing a mode that was already selected manually.
   - id: ${name}_${inverter}_grid_fallback_active
     type: bool
@@ -445,7 +445,7 @@ number:
     restore_value: true
     mode: 'slider'
 
-  # If low-SoC automation selected SUB, return to SBU only after reaching
+  # If low-SoC automation selected USB, return to SBU only after reaching
   # this higher SoC.  The gap prevents rapid source-priority toggling.
   - platform: template
     name: "Grid recovery SoC"
@@ -1165,7 +1165,8 @@ sensor:
           # ----------------------------------------------------------
           # Low-SoC source-priority fallback with recovery hysteresis.
           # Only restore SBU later if this automation was the one that
-          # originally changed the priority to SUB.
+          # originally changed the priority to USB. This 24V inverter can fail to
+          # charge in SUB, so use Utility Solar Battery (USB) for grid fallback.
           # ----------------------------------------------------------
           - if:
               condition:
@@ -1174,32 +1175,32 @@ sensor:
                       > id(${name}_${inverter}_grid_fallback_soc).state;
 
               then:
-                # Low SoC -> SUB, unless already SUB.
+                # Low SoC -> USB, unless already USB.
                 - if:
                     condition:
                       lambda: |-
                         return !isnan(x)
                             && (x < id(${name}_${inverter}_grid_fallback_soc).state)
                             && (id(${name}_${inverter}_output_source_priority_select).current_option()
-                                != "Solar Utility Battery");
+                                != "Utility Solar Battery");
 
                     then:
                       - select.set:
                           id: ${name}_${inverter}_output_source_priority_select
-                          option: "Solar Utility Battery"
+                          option: "Utility Solar Battery"
                       - lambda: |-
                           id(${name}_${inverter}_grid_fallback_active) = true;
                       - logger.log:
                           level: WARN
                           tag: "grid_fallback"
-                          format: "SoC %.1f%% < %.0f%% -> switching to Solar Utility Battery"
+                          format: "SoC %.1f%% < %.0f%% -> switching to Utility Solar Battery (USB)"
                           args:
                             - 'x'
                             - 'id(${name}_${inverter}_grid_fallback_soc).state'
 
                     else:
                       # Recovered -> SBU, but only if automation owns the
-                      # fallback and the inverter is still in SUB.
+                      # fallback and the inverter is still in USB.
                       - if:
                           condition:
                             lambda: |-
@@ -1212,7 +1213,7 @@ sensor:
                                 condition:
                                   lambda: |-
                                     return id(${name}_${inverter}_output_source_priority_select).current_option()
-                                        == "Solar Utility Battery";
+                                        == "Utility Solar Battery";
                                 then:
                                   - select.set:
                                       id: ${name}_${inverter}_output_source_priority_select
